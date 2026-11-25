@@ -1,0 +1,6 @@
+{
+  "name": "Brasileirão Super Star 26",
+  "description": "Jogo de futebol retrô 2D estilo SNES 16-bit com os 24 clubes da temporada 2026, modos Amistoso, Campeonato Copa e Pênaltis, áudio Web Audio API e suporte a teclado e Gamepad USB.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
