@@ -259,25 +259,47 @@ function wrapPcm16AsWav(pcmBuffer: Buffer, sampleRate = 24000): Buffer {
   return Buffer.concat([header, pcmBuffer]);
 }
 
-// Perfil de masterização vocal masculina via Rubberband (pitch + formantes deslocados para registro de homem adulto barítono/grave)
+// Perfil de masterização vocal masculina via Rubberband (pitch + formantes deslocados para registro de homem adulto barítono/grave em playbackRate 1.0)
 function getMaleRubberbandFilter(speaker: BroadcastSpeaker, mood: NarrationMood): string {
-  // Como o cliente aplica playbackRate (~0.91 a 0.97), calibramos o pitch base em 0.72–0.79 com formant=shifted para voz 100% masculina natural
   if (speaker === 'casagrande') {
     const tempo = mood === 'excited' || mood === 'goal' ? 1.12 : 1.07;
-    return `rubberband=pitch=0.71:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=5.5:f=155,equalizer=f=1150:t=q:w=1.1:g=2.2`;
+    return `rubberband=pitch=0.75:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=4.6:f=155,equalizer=f=1150:t=q:w=1.1:g=2.2,treble=g=1.4:f=3200`;
   }
   if (speaker === 'ronaldo') {
-    const tempo = mood === 'excited' || mood === 'goal' ? 1.18 : 1.13;
-    return `rubberband=pitch=0.77:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=4.5:f=175,equalizer=f=1350:t=q:w=1.1:g=2.0`;
+    const tempo = mood === 'excited' || mood === 'goal' ? 1.16 : 1.11;
+    return `rubberband=pitch=0.81:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=3.8:f=170,equalizer=f=1380:t=q:w=1.1:g=2.2,treble=g=1.6:f=3400`;
   }
   if (speaker === 'neto') {
-    const tempo = mood === 'excited' || mood === 'goal' ? 1.24 : 1.18;
-    return `rubberband=pitch=0.78:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=4.0:f=180,equalizer=f=1720:t=q:w=1.2:g=3.6`;
+    const tempo = mood === 'excited' || mood === 'goal' ? 1.22 : 1.16;
+    return `rubberband=pitch=0.84:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=3.4:f=180,equalizer=f=1720:t=q:w=1.2:g=3.2,treble=g=2.0:f=3500`;
   }
   // Galvão Bueno (narrador principal)
-  const tempo = mood === 'goal' ? 1.22 : mood === 'excited' ? 1.17 : 1.12;
-  const pitch = mood === 'goal' ? 0.76 : 0.74;
-  return `rubberband=pitch=${pitch}:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=4.8:f=165,equalizer=f=1420:t=q:w=1.1:g=2.8`;
+  const tempo = mood === 'goal' ? 1.20 : mood === 'excited' ? 1.15 : 1.10;
+  const pitch = mood === 'goal' ? 0.82 : 0.79;
+  return `rubberband=pitch=${pitch}:tempo=${tempo}:formant=shifted:pitchq=quality,bass=g=4.0:f=165,equalizer=f=1450:t=q:w=1.1:g=2.5,treble=g=1.8:f=3400`;
+}
+
+// Filtro nativo FFmpeg (asetrate + aresample + atempo) caso librubberband não esteja compilado no binário ffmpeg
+function getMaleStandardFfmpegFilter(speaker: BroadcastSpeaker, mood: NarrationMood): string {
+  if (speaker === 'casagrande') {
+    const pitch = 0.76;
+    const tempo = Math.min(2.0, (mood === 'excited' || mood === 'goal' ? 1.12 : 1.07) / pitch);
+    return `asetrate=24000*${pitch},aresample=24000,atempo=${tempo.toFixed(3)},bass=g=4.6:f=155,equalizer=f=1150:t=q:w=1.1:g=2.2`;
+  }
+  if (speaker === 'ronaldo') {
+    const pitch = 0.81;
+    const tempo = Math.min(2.0, (mood === 'excited' || mood === 'goal' ? 1.16 : 1.11) / pitch);
+    return `asetrate=24000*${pitch},aresample=24000,atempo=${tempo.toFixed(3)},bass=g=3.8:f=170,equalizer=f=1380:t=q:w=1.1:g=2.2`;
+  }
+  if (speaker === 'neto') {
+    const pitch = 0.84;
+    const tempo = Math.min(2.0, (mood === 'excited' || mood === 'goal' ? 1.22 : 1.16) / pitch);
+    return `asetrate=24000*${pitch},aresample=24000,atempo=${tempo.toFixed(3)},bass=g=3.4:f=180,equalizer=f=1720:t=q:w=1.2:g=3.2`;
+  }
+  const pitch = mood === 'goal' ? 0.82 : 0.79;
+  const targetSpeed = mood === 'goal' ? 1.20 : mood === 'excited' ? 1.15 : 1.10;
+  const tempo = Math.min(2.0, targetSpeed / pitch);
+  return `asetrate=24000*${pitch},aresample=24000,atempo=${tempo.toFixed(3)},bass=g=4.0:f=165,equalizer=f=1450:t=q:w=1.1:g=2.5`;
 }
 
 // Divide frases longas em blocos de até 185 caracteres respeitando pontuação
@@ -307,42 +329,7 @@ function splitTextChunks(rawText: string, maxLen = 185): string[] {
   return chunks;
 }
 
-// Motor vocal masculino em português ilimitado (zero cota 429): busca fonética PT-BR e masteriza com Rubberband Formant+Pitch Shift em barítono masculino real
-async function synthesizeUnlimitedMalePortuguesePcm(
-  text: string,
-  mood: NarrationMood,
-  speaker: BroadcastSpeaker
-): Promise<Buffer> {
-  const segments = splitTextChunks(text, 185);
-  if (segments.length === 0) {
-    throw new Error('EMPTY_TTS_TEXT');
-  }
-
-  const mp3Buffers: Buffer[] = [];
-  for (const seg of segments) {
-    const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=pt-BR&q=${encodeURIComponent(seg)}`;
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`FALLBACK_TTS_HTTP_${response.status}`);
-    }
-    const ab = await response.arrayBuffer();
-    if (ab.byteLength > 64) {
-      mp3Buffers.push(Buffer.from(ab));
-    }
-  }
-
-  if (mp3Buffers.length === 0) {
-    throw new Error('FALLBACK_TTS_EMPTY_MP3');
-  }
-
-  const combinedMp3 = Buffer.concat(mp3Buffers);
-  const filterGraph = getMaleRubberbandFilter(speaker, mood);
-
+function runFfmpegAudioFilter(inputMp3: Buffer, filterGraph: string): Promise<Buffer> {
   return new Promise<Buffer>((resolve, reject) => {
     const ff = spawn('ffmpeg', [
       '-loglevel',
@@ -383,75 +370,118 @@ async function synthesizeUnlimitedMalePortuguesePcm(
     ff.stdin.on('error', () => {
       // ignore EPIPE if process closes early
     });
-    ff.stdin.end(combinedMp3);
+    ff.stdin.end(inputMp3);
   });
+}
+
+// Motor vocal masculino em português ilimitado (zero cota 429): busca fonética PT-BR e masteriza com Rubberband Formant+Pitch Shift em barítono masculino real
+async function synthesizeUnlimitedMalePortuguesePcm(
+  text: string,
+  mood: NarrationMood,
+  speaker: BroadcastSpeaker
+): Promise<Buffer> {
+  const segments = splitTextChunks(text, 185);
+  if (segments.length === 0) {
+    throw new Error('EMPTY_TTS_TEXT');
+  }
+
+  const mp3Buffers: Buffer[] = [];
+  for (const seg of segments) {
+    const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=pt-BR&q=${encodeURIComponent(seg)}`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      },
+    });
+    if (!response.ok) {
+      throw new Error(`FALLBACK_TTS_HTTP_${response.status}`);
+    }
+    const ab = await response.arrayBuffer();
+    if (ab.byteLength > 64) {
+      mp3Buffers.push(Buffer.from(ab));
+    }
+  }
+
+  if (mp3Buffers.length === 0) {
+    throw new Error('FALLBACK_TTS_EMPTY_MP3');
+  }
+
+  const combinedMp3 = Buffer.concat(mp3Buffers);
+  try {
+    return await runFfmpegAudioFilter(combinedMp3, getMaleRubberbandFilter(speaker, mood));
+  } catch {
+    return await runFfmpegAudioFilter(combinedMp3, getMaleStandardFfmpegFilter(speaker, mood));
+  }
 }
 
 async function synthesizeMaleNarrationWav(
   text: string,
   mood: NarrationMood,
   speaker: BroadcastSpeaker = 'galvao'
-): Promise<Buffer> {
-  const ai = getGenAIClient();
-  const style = getStyleForSpeakerAndMood(speaker, mood);
-  const voiceName = SPEAKER_VOICES[speaker];
-  const expressiveText = decorateExpressiveText(text, speaker, mood, false);
+): Promise<{ buffer: Buffer; engine: 'GEMINI' | 'STUDIO-MALE-PT' }> {
+  try {
+    const ai = getGenAIClient();
+    const style = getStyleForSpeakerAndMood(speaker, mood);
+    const voiceName = SPEAKER_VOICES[speaker];
+    const expressiveText = decorateExpressiveText(text, speaker, mood, false);
 
-  for (const modelName of getOrderedTtsModels()) {
-    try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: expressiveText,
-                speechMetadata: {
-                  style,
+    for (const modelName of getOrderedTtsModels()) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: expressiveText,
+                  speechMetadata: {
+                    style,
+                  },
                 },
-              },
-            ],
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName,
+              ],
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName,
+                },
               },
             },
           },
-        },
-      });
+        });
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) {
-        throw new Error('EMPTY_AUDIO_RESPONSE');
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) {
+          throw new Error('EMPTY_AUDIO_RESPONSE');
+        }
+        return { buffer: Buffer.from(base64Audio, 'base64'), engine: 'GEMINI' };
+      } catch (err) {
+        if (isQuotaOrRateLimitError(err)) {
+          markModelQuotaExceeded(modelName, err);
+          continue;
+        }
+        break;
       }
-      return Buffer.from(base64Audio, 'base64');
-    } catch (err) {
-      if (isQuotaOrRateLimitError(err)) {
-        markModelQuotaExceeded(modelName, err);
-        continue;
-      }
-      break;
     }
+  } catch {
+    // Segue imediatamente para o motor vocal masculino em português ilimitado do servidor
   }
 
   // Fallback ilimitado de voz masculina em português (quando ambos os modelos Gemini TTS atingem limite de cota)
   const fallbackPcm = await synthesizeUnlimitedMalePortuguesePcm(text, mood, speaker);
-  return wrapPcm16AsWav(fallbackPcm, 24000);
+  return { buffer: wrapPcm16AsWav(fallbackPcm, 24000), engine: 'STUDIO-MALE-PT' };
 }
 
 // Síntese de Bate-Bola em Dupla real (multiSpeakerVoiceConfig com 2 locutores + fallback automático entre modelos + fallback vocal masculino ilimitado)
 async function synthesizeDialogueWav(
   turns: DialogueTurn[],
   mood: NarrationMood
-): Promise<Buffer> {
-  const ai = getGenAIClient();
-
+): Promise<{ buffer: Buffer; engine: 'GEMINI' | 'STUDIO-MALE-PT' }> {
   // Garante exatamente 2 locutores distintos no multiSpeakerVoiceConfig
   const uniqueSpeakers: BroadcastSpeaker[] = [];
   for (const t of turns) {
@@ -464,78 +494,83 @@ async function synthesizeDialogueWav(
     return synthesizeMaleNarrationWav(solo.text, mood, solo.speaker);
   }
 
-  const spkA = uniqueSpeakers[0];
-  const spkB = uniqueSpeakers[1];
-  const labelA = SPEAKER_LABELS[spkA];
-  const labelB = SPEAKER_LABELS[spkB];
+  try {
+    const ai = getGenAIClient();
+    const spkA = uniqueSpeakers[0];
+    const spkB = uniqueSpeakers[1];
+    const labelA = SPEAKER_LABELS[spkA];
+    const labelB = SPEAKER_LABELS[spkB];
 
-  // Garante que as 2 vozes pré-construídas na dupla nunca colidam
-  const voiceA = SPEAKER_VOICES[spkA];
-  const voiceB =
-    SPEAKER_VOICES[spkB] === voiceA
-      ? voiceA === 'Puck'
-        ? 'Charon'
-        : 'Puck'
-      : SPEAKER_VOICES[spkB];
+    // Garante que as 2 vozes pré-construídas na dupla nunca colidam
+    const voiceA = SPEAKER_VOICES[spkA];
+    const voiceB =
+      SPEAKER_VOICES[spkB] === voiceA
+        ? voiceA === 'Puck'
+          ? 'Charon'
+          : 'Puck'
+        : SPEAKER_VOICES[spkB];
 
-  const parts = turns.slice(0, 4).map((turn, idx) => {
-    const activeSpk = turn.speaker === spkA || turn.speaker === spkB ? turn.speaker : spkB;
-    const label = SPEAKER_LABELS[activeSpk];
-    const spoken = decorateExpressiveText(turn.text, activeSpk, mood, idx > 0);
-    return {
-      text: `${label}: ${spoken}`,
-      speechMetadata: {
-        speaker: label,
-        style: getStyleForSpeakerAndMood(activeSpk, mood),
-      },
-    };
-  });
+    const parts = turns.slice(0, 4).map((turn, idx) => {
+      const activeSpk = turn.speaker === spkA || turn.speaker === spkB ? turn.speaker : spkB;
+      const label = SPEAKER_LABELS[activeSpk];
+      const spoken = decorateExpressiveText(turn.text, activeSpk, mood, idx > 0);
+      return {
+        text: `${label}: ${spoken}`,
+        speechMetadata: {
+          speaker: label,
+          style: getStyleForSpeakerAndMood(activeSpk, mood),
+        },
+      };
+    });
 
-  for (const modelName of getOrderedTtsModels()) {
-    try {
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: [
-          {
-            role: 'user',
-            parts,
-          },
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            multiSpeakerVoiceConfig: {
-              speakerVoiceConfigs: [
-                {
-                  speaker: labelA,
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: voiceA },
+    for (const modelName of getOrderedTtsModels()) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: 'user',
+              parts,
+            },
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              multiSpeakerVoiceConfig: {
+                speakerVoiceConfigs: [
+                  {
+                    speaker: labelA,
+                    voiceConfig: {
+                      prebuiltVoiceConfig: { voiceName: voiceA },
+                    },
                   },
-                },
-                {
-                  speaker: labelB,
-                  voiceConfig: {
-                    prebuiltVoiceConfig: { voiceName: voiceB },
+                  {
+                    speaker: labelB,
+                    voiceConfig: {
+                      prebuiltVoiceConfig: { voiceName: voiceB },
+                    },
                   },
-                },
-              ],
+                ],
+              },
             },
           },
-        },
-      });
+        });
 
-      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (!base64Audio) {
-        throw new Error('EMPTY_DIALOGUE_AUDIO');
+        const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (!base64Audio) {
+          throw new Error('EMPTY_DIALOGUE_AUDIO');
+        }
+        return { buffer: Buffer.from(base64Audio, 'base64'), engine: 'GEMINI' };
+      } catch (err) {
+        if (isQuotaOrRateLimitError(err)) {
+          markModelQuotaExceeded(modelName, err);
+          continue;
+        }
+        break;
       }
-      return Buffer.from(base64Audio, 'base64');
-    } catch (err) {
-      if (isQuotaOrRateLimitError(err)) {
-        markModelQuotaExceeded(modelName, err);
-        continue;
-      }
-      break;
     }
+  } catch {
+    // Segue para síntese de diálogo em dupla no motor masculino PT-BR ilimitado
   }
 
   // Fallback ilimitado em dupla: sintetiza cada fala com o timbre masculino específico do locutor (Galvão + Comentarista) e concatena com pausa de 120ms
@@ -547,7 +582,7 @@ async function synthesizeDialogueWav(
     if (i > 0) turnPcms.push(pausePcm);
     turnPcms.push(pcm);
   }
-  return wrapPcm16AsWav(Buffer.concat(turnPcms), 24000);
+  return { buffer: wrapPcm16AsWav(Buffer.concat(turnPcms), 24000), engine: 'STUDIO-MALE-PT' };
 }
 
 async function startServer(): Promise<void> {
@@ -563,19 +598,19 @@ async function startServer(): Promise<void> {
       }
     });
 
+    const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    const mood = parseMood(req.body?.mood);
+    const speaker = parseSpeaker(req.body?.speaker);
+
+    if (!rawText) {
+      res.status(400).json({ error: 'Texto da narração é obrigatório.' });
+      return;
+    }
+
+    const text = rawText.slice(0, 240);
+    const cacheKey = `${speaker}::${mood}::${text.toLowerCase()}`;
+
     try {
-      const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
-      const mood = parseMood(req.body?.mood);
-      const speaker = parseSpeaker(req.body?.speaker);
-
-      if (!rawText) {
-        res.status(400).json({ error: 'Texto da narração é obrigatório.' });
-        return;
-      }
-
-      const text = rawText.slice(0, 240);
-      const cacheKey = `${speaker}::${mood}::${text.toLowerCase()}`;
-
       const cachedPcm = pcmCache.get(cacheKey);
       if (cachedPcm) {
         pcmCache.delete(cacheKey);
@@ -583,115 +618,126 @@ async function startServer(): Promise<void> {
         res.setHeader('Content-Type', 'audio/pcm');
         res.setHeader('X-Sample-Rate', '24000');
         res.setHeader('X-Narration-Cache', 'HIT');
+        res.setHeader('X-Narration-Engine', 'STUDIO-MALE-PT');
         res.setHeader('Cache-Control', 'no-store');
         res.status(200).end(cachedPcm);
         return;
       }
 
-      const ai = getGenAIClient();
-      const style = getStyleForSpeakerAndMood(speaker, mood);
-      const voiceName = SPEAKER_VOICES[speaker];
-      const expressiveText = decorateExpressiveText(text, speaker, mood, false);
+      const chunks: Buffer[] = [];
+      let headersFlushed = false;
 
-      let stream: Awaited<ReturnType<typeof ai.models.generateContentStream>> | null = null;
+      try {
+        const ai = getGenAIClient();
+        const style = getStyleForSpeakerAndMood(speaker, mood);
+        const voiceName = SPEAKER_VOICES[speaker];
+        const expressiveText = decorateExpressiveText(text, speaker, mood, false);
 
-      for (const modelName of getOrderedTtsModels()) {
-        try {
-          stream = await ai.models.generateContentStream({
-            model: modelName,
-            contents: [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    text: expressiveText,
-                    speechMetadata: {
-                      style,
+        for (const modelName of getOrderedTtsModels()) {
+          try {
+            const stream = await ai.models.generateContentStream({
+              model: modelName,
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    {
+                      text: expressiveText,
+                      speechMetadata: {
+                        style,
+                      },
                     },
-                  },
-                ],
-              },
-            ],
-            config: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: {
-                    voiceName,
+                  ],
+                },
+              ],
+              config: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName,
+                    },
                   },
                 },
               },
-            },
-          });
-          break;
-        } catch (err) {
-          if (isQuotaOrRateLimitError(err)) {
-            markModelQuotaExceeded(modelName, err);
-            continue;
+            });
+
+            // Só envia os cabeçalhos HTTP quando o primeiro bloco real de áudio chegar (evita resposta vazia em erro 429 durante o for-await)
+            for await (const chunk of stream) {
+              if (clientClosed) break;
+              const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+              if (base64Audio) {
+                const pcmBuf = Buffer.from(base64Audio, 'base64');
+                if (pcmBuf.length > 0) {
+                  if (!headersFlushed) {
+                    headersFlushed = true;
+                    res.setHeader('Content-Type', 'audio/pcm');
+                    res.setHeader('X-Sample-Rate', '24000');
+                    res.setHeader('X-Narration-Cache', 'MISS');
+                    res.setHeader('X-Narration-Engine', 'GEMINI');
+                    res.setHeader('Cache-Control', 'no-store');
+                    res.setHeader('X-Accel-Buffering', 'no');
+                    res.flushHeaders?.();
+                  }
+                  chunks.push(pcmBuf);
+                  res.write(pcmBuf);
+                }
+              }
+            }
+
+            if (chunks.length > 0) {
+              break;
+            }
+          } catch (err) {
+            if (isQuotaOrRateLimitError(err)) {
+              markModelQuotaExceeded(modelName, err);
+              if (!headersFlushed) {
+                continue;
+              }
+            }
+            break;
           }
-          break;
         }
+      } catch {
+        // Chave ausente ou erro de rede -> cai direto no sintetizador masculino PT-BR abaixo
       }
 
-      if (!stream) {
-        // Ambos os modelos Gemini TTS estão em cooldown de cota -> usa o sintetizador vocal masculino em português ilimitado do servidor!
-        const fallbackPcm = await synthesizeUnlimitedMalePortuguesePcm(text, mood, speaker);
+      if (chunks.length > 0) {
         if (!clientClosed) {
-          cacheSet(pcmCache, cacheKey, fallbackPcm);
-          res.setHeader('Content-Type', 'audio/pcm');
-          res.setHeader('X-Sample-Rate', '24000');
-          res.setHeader('X-Narration-Cache', 'MISS');
-          res.setHeader('X-Narration-Engine', 'STUDIO-MALE-PT');
-          res.setHeader('Cache-Control', 'no-store');
-          res.status(200).end(fallbackPcm);
+          res.end();
+          cacheSet(pcmCache, cacheKey, Buffer.concat(chunks));
         }
         return;
       }
 
-      res.setHeader('Content-Type', 'audio/pcm');
-      res.setHeader('X-Sample-Rate', '24000');
-      res.setHeader('X-Narration-Cache', 'MISS');
-      res.setHeader('Cache-Control', 'no-store');
-      res.setHeader('X-Accel-Buffering', 'no');
-      res.flushHeaders?.();
-
-      const chunks: Buffer[] = [];
-      for await (const chunk of stream) {
-        if (clientClosed) break;
-        const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-        if (base64Audio) {
-          const pcmBuf = Buffer.from(base64Audio, 'base64');
-          if (pcmBuf.length > 0) {
-            chunks.push(pcmBuf);
-            res.write(pcmBuf);
-          }
-        }
-      }
-
-      if (!clientClosed) {
+      // Ambos os modelos Gemini TTS estão em cooldown de cota (ou falharam antes do 1º byte) -> usa o sintetizador vocal masculino em português ilimitado do servidor!
+      const fallbackPcm = await synthesizeUnlimitedMalePortuguesePcm(text, mood, speaker);
+      if (!clientClosed && !res.headersSent) {
+        cacheSet(pcmCache, cacheKey, fallbackPcm);
+        res.setHeader('Content-Type', 'audio/pcm');
+        res.setHeader('X-Sample-Rate', '24000');
+        res.setHeader('X-Narration-Cache', 'MISS');
+        res.setHeader('X-Narration-Engine', 'STUDIO-MALE-PT');
+        res.setHeader('Cache-Control', 'no-store');
+        res.status(200).end(fallbackPcm);
+      } else if (!res.writableEnded) {
         res.end();
-        if (chunks.length > 0) {
-          cacheSet(pcmCache, cacheKey, Buffer.concat(chunks));
-        }
       }
     } catch (err) {
-      if (!isQuotaOrRateLimitError(err)) {
-        console.warn('[TTS /api/narrate/stream notice]', err instanceof Error ? err.message : err);
-      }
       if (!res.headersSent) {
-        if (isQuotaOrRateLimitError(err)) {
-          res.setHeader('X-Narration-Quota', 'EXHAUSTED');
+        try {
+          const fallbackPcm = await synthesizeUnlimitedMalePortuguesePcm(text, mood, speaker);
+          cacheSet(pcmCache, cacheKey, fallbackPcm);
+          res.setHeader('Content-Type', 'audio/pcm');
+          res.setHeader('X-Sample-Rate', '24000');
+          res.setHeader('X-Narration-Engine', 'STUDIO-MALE-PT');
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(200).end(fallbackPcm);
+          return;
+        } catch {
           res.status(204).end();
           return;
         }
-        const message = err instanceof Error ? err.message : 'Erro ao gerar narração em streaming.';
-        const status = (err as { status?: number })?.status;
-        if (message === 'GEMINI_API_KEY_MISSING') {
-          res.status(503).json({ error: 'Chave da API Gemini não configurada no servidor.' });
-          return;
-        }
-        const httpStatus = status && status >= 400 && status < 600 ? status : 500;
-        res.status(httpStatus).json({ error: message });
       } else if (!res.writableEnded) {
         res.end();
       }
@@ -728,17 +774,20 @@ async function startServer(): Promise<void> {
         dialogueWavCache.set(cacheKey, cached);
         res.setHeader('Content-Type', 'audio/wav');
         res.setHeader('X-Narration-Cache', 'HIT');
+        res.setHeader('X-Narration-Engine', 'STUDIO-MALE-PT');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.status(200).send(cached);
         return;
       }
 
+      let engineUsed: 'GEMINI' | 'STUDIO-MALE-PT' = 'STUDIO-MALE-PT';
       let pending = inFlightTts.get(cacheKey);
       if (!pending) {
         pending = synthesizeDialogueWav(turns, mood)
-          .then((buf) => {
-            cacheSet(dialogueWavCache, cacheKey, buf);
-            return buf;
+          .then((result) => {
+            engineUsed = result.engine;
+            cacheSet(dialogueWavCache, cacheKey, result.buffer);
+            return result.buffer;
           })
           .finally(() => {
             inFlightTts.delete(cacheKey);
@@ -749,23 +798,11 @@ async function startServer(): Promise<void> {
       const wavBuffer = await pending;
       res.setHeader('Content-Type', 'audio/wav');
       res.setHeader('X-Narration-Cache', 'MISS');
+      res.setHeader('X-Narration-Engine', engineUsed);
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.status(200).send(wavBuffer);
-    } catch (err) {
-      if (isQuotaOrRateLimitError(err)) {
-        res.setHeader('X-Narration-Quota', 'EXHAUSTED');
-        res.status(204).end();
-        return;
-      }
-      console.warn('[TTS /api/narrate/dialogue notice]', err instanceof Error ? err.message : err);
-      const message = err instanceof Error ? err.message : 'Erro ao gerar diálogo da cabine.';
-      const status = (err as { status?: number })?.status;
-      if (message === 'GEMINI_API_KEY_MISSING') {
-        res.status(503).json({ error: 'Chave da API Gemini não configurada no servidor.' });
-        return;
-      }
-      const httpStatus = status && status >= 400 && status < 600 ? status : 500;
-      res.status(httpStatus).json({ error: message });
+    } catch {
+      res.status(204).end();
     }
   });
 
@@ -790,17 +827,20 @@ async function startServer(): Promise<void> {
         wavCache.set(cacheKey, cached);
         res.setHeader('Content-Type', 'audio/wav');
         res.setHeader('X-Narration-Cache', 'HIT');
+        res.setHeader('X-Narration-Engine', 'STUDIO-MALE-PT');
         res.setHeader('Cache-Control', 'public, max-age=3600');
         res.status(200).send(cached);
         return;
       }
 
+      let engineUsed: 'GEMINI' | 'STUDIO-MALE-PT' = 'STUDIO-MALE-PT';
       let pending = inFlightTts.get(cacheKey);
       if (!pending) {
         pending = synthesizeMaleNarrationWav(text, mood, speaker)
-          .then((buf) => {
-            cacheSet(wavCache, cacheKey, buf);
-            return buf;
+          .then((result) => {
+            engineUsed = result.engine;
+            cacheSet(wavCache, cacheKey, result.buffer);
+            return result.buffer;
           })
           .finally(() => {
             inFlightTts.delete(cacheKey);
@@ -811,23 +851,11 @@ async function startServer(): Promise<void> {
       const wavBuffer = await pending;
       res.setHeader('Content-Type', 'audio/wav');
       res.setHeader('X-Narration-Cache', 'MISS');
+      res.setHeader('X-Narration-Engine', engineUsed);
       res.setHeader('Cache-Control', 'public, max-age=3600');
       res.status(200).send(wavBuffer);
-    } catch (err) {
-      if (isQuotaOrRateLimitError(err)) {
-        res.setHeader('X-Narration-Quota', 'EXHAUSTED');
-        res.status(204).end();
-        return;
-      }
-      console.warn('[TTS /api/narrate notice]', err instanceof Error ? err.message : err);
-      const message = err instanceof Error ? err.message : 'Erro ao gerar narração masculina.';
-      const status = (err as { status?: number })?.status;
-      if (message === 'GEMINI_API_KEY_MISSING') {
-        res.status(503).json({ error: 'Chave da API Gemini não configurada no servidor.' });
-        return;
-      }
-      const httpStatus = status && status >= 400 && status < 600 ? status : 500;
-      res.status(httpStatus).json({ error: message });
+    } catch {
+      res.status(204).end();
     }
   });
 

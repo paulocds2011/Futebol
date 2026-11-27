@@ -1130,7 +1130,12 @@ class RetroAudioEngine {
     return audioBuffer;
   }
 
-  private getSpeakerVoiceShaping(speaker: BroadcastSpeaker | 'duo'): {
+  private studioMasteredBuffers = new WeakSet<AudioBuffer>();
+
+  private getSpeakerVoiceShaping(
+    speaker: BroadcastSpeaker | 'duo',
+    isStudioMastered = false
+  ): {
     playbackRate: number;
     eqType: BiquadFilterType;
     eqFreq: number;
@@ -1139,23 +1144,55 @@ class RetroAudioEngine {
     warmBassGain: number;
   } {
     if (speaker === 'duo') {
-      // Diálogo em dupla (Fenrir + Charon/Puck): leve aprofundamento + corpo grave para manter ambos 100% masculinos
-      return { playbackRate: 0.96, eqType: 'peaking', eqFreq: 1350, eqGain: 1.4, eqQ: 0.85, warmBassGain: 2.4 };
+      // Diálogo em dupla (Fenrir + Charon/Puck): se já veio masterizado em STUDIO-MALE-PT, mantém playbackRate 1.0
+      return {
+        playbackRate: isStudioMastered ? 1.0 : 0.96,
+        eqType: 'peaking',
+        eqFreq: 1350,
+        eqGain: 1.4,
+        eqQ: 0.85,
+        warmBassGain: isStudioMastered ? 1.2 : 2.4,
+      };
     }
     if (speaker === 'neto') {
-      // Puck aprofundado: timbre masculino encorpado e rasgado com punch médio (jamais acelerado ou agudo!)
-      return { playbackRate: 0.94, eqType: 'peaking', eqFreq: 1650, eqGain: 3.0, eqQ: 1.0, warmBassGain: 3.4 };
+      return {
+        playbackRate: isStudioMastered ? 1.0 : 0.94,
+        eqType: 'peaking',
+        eqFreq: 1650,
+        eqGain: 2.6,
+        eqQ: 1.0,
+        warmBassGain: isStudioMastered ? 1.6 : 3.4,
+      };
     }
     if (speaker === 'casagrande') {
-      // Charon grave, quente e encorpado estilo Walter Casagrande
-      return { playbackRate: 0.93, eqType: 'lowshelf', eqFreq: 190, eqGain: 3.6, eqQ: 0.85, warmBassGain: 0 };
+      return {
+        playbackRate: isStudioMastered ? 1.0 : 0.93,
+        eqType: 'lowshelf',
+        eqFreq: 190,
+        eqGain: isStudioMastered ? 2.0 : 3.6,
+        eqQ: 0.85,
+        warmBassGain: 0,
+      };
     }
     if (speaker === 'ronaldo') {
-      // Puck aprofundado com corpo grave caloroso de barítono masculino estilo Ronaldo Fenômeno
-      return { playbackRate: 0.91, eqType: 'lowshelf', eqFreq: 210, eqGain: 3.6, eqQ: 0.85, warmBassGain: 1.6 };
+      return {
+        playbackRate: isStudioMastered ? 1.0 : 0.92,
+        eqType: 'lowshelf',
+        eqFreq: 210,
+        eqGain: isStudioMastered ? 2.0 : 3.6,
+        eqQ: 0.85,
+        warmBassGain: isStudioMastered ? 1.0 : 1.6,
+      };
     }
     // Galvão Bueno (Fenrir): microfone clássico de transmissão de TV com corpo barítono-grave e presença dramática
-    return { playbackRate: 0.97, eqType: 'peaking', eqFreq: 1300, eqGain: 1.8, eqQ: 0.9, warmBassGain: 1.4 };
+    return {
+      playbackRate: isStudioMastered ? 1.0 : 0.97,
+      eqType: 'peaking',
+      eqFreq: 1350,
+      eqGain: 1.8,
+      eqQ: 0.9,
+      warmBassGain: isStudioMastered ? 1.0 : 1.4,
+    };
   }
 
   private playNarrationBuffer(
@@ -1174,7 +1211,8 @@ class RetroAudioEngine {
 
     this.stopActiveNarratorSource(0.025);
 
-    const shaping = this.getSpeakerVoiceShaping(speaker);
+    const isStudioMastered = this.studioMasteredBuffers.has(buffer);
+    const shaping = this.getSpeakerVoiceShaping(speaker, isStudioMastered);
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.playbackRate.setValueAtTime(shaping.playbackRate, this.ctx.currentTime);
@@ -1459,7 +1497,8 @@ class RetroAudioEngine {
     }
     const cacheKey = `${speaker}::${mood}::${cleanText.toLowerCase()}`;
 
-    const shaping = this.getSpeakerVoiceShaping(speaker);
+    let shaping = this.getSpeakerVoiceShaping(speaker, false);
+    let isStudioMastered = false;
     let utteranceGain: GainNode | null = null;
     let utteranceInputNode: AudioNode | null = null;
     let startedPlayback = false;
@@ -1491,6 +1530,10 @@ class RetroAudioEngine {
         this.speakBrowserFallback(cleanText, mood, speaker, seq, () => onStateChange?.('idle'));
         return;
       }
+
+      isStudioMastered = res.headers.get('X-Narration-Engine') === 'STUDIO-MALE-PT';
+      shaping = this.getSpeakerVoiceShaping(speaker, isStudioMastered);
+
       const sampleRate = Number(res.headers.get('X-Sample-Rate') || STREAM_PCM_SAMPLE_RATE);
       const reader = res.body.getReader();
 
@@ -1643,6 +1686,9 @@ class RetroAudioEngine {
         }
         const fullBuf = this.pcm16ToAudioBuffer(combined, sampleRate);
         if (fullBuf) {
+          if (isStudioMastered) {
+            this.studioMasteredBuffers.add(fullBuf);
+          }
           this.setNarrationCache(cacheKey, fullBuf);
         }
       }
@@ -1689,11 +1735,17 @@ class RetroAudioEngine {
           body: JSON.stringify({ text: cleanText, mood, speaker }),
         });
         if (!res.ok) return null;
+        const isStudio = res.headers.get('X-Narration-Engine') === 'STUDIO-MALE-PT';
         const sampleRate = Number(res.headers.get('X-Sample-Rate') || STREAM_PCM_SAMPLE_RATE);
         const ab = await res.arrayBuffer();
         if (ab.byteLength < 64) return null;
         const buf = this.pcm16ToAudioBuffer(new Uint8Array(ab), sampleRate);
-        if (buf) this.setNarrationCache(cacheKey, buf);
+        if (buf) {
+          if (isStudio) {
+            this.studioMasteredBuffers.add(buf);
+          }
+          this.setNarrationCache(cacheKey, buf);
+        }
         return buf;
       } catch {
         return null;
@@ -1914,6 +1966,7 @@ class RetroAudioEngine {
           return;
         }
 
+        const isStudio = res.headers.get('X-Narration-Engine') === 'STUDIO-MALE-PT';
         const wavAb = await res.arrayBuffer();
         if (wavAb.byteLength < 64 || !this.ctx || seq !== this.narrationSeq || this.muted) {
           if (seq === this.narrationSeq && !this.muted && !controller.signal.aborted) {
@@ -1925,6 +1978,9 @@ class RetroAudioEngine {
         }
 
         const audioBuffer = await this.ctx.decodeAudioData(wavAb.slice(0));
+        if (isStudio) {
+          this.studioMasteredBuffers.add(audioBuffer);
+        }
         this.narrationErrorCount = 0;
         this.narrationCooldownUntil = 0;
         this.setNarrationCache(cacheKey, audioBuffer);

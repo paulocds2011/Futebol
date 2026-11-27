@@ -25,13 +25,13 @@ import {
 export const CANVAS_W = 960;
 export const CANVAS_H = 540;
 
-// 3 modos de câmera (TV Clássica, Perto Ação, Ampla Tática) ajustados para o campo 12×12 ampliado (3600x2120)
+// 3 modos de câmera (TV Clássica, Perto Ação, Ampla Tática) com jogadores maiores e ultra-detalhados
 const CAMERA_PRESETS: Record<CameraMode, { sx: number; sy: number; spriteScale: number }> = {
-  TV: { sx: 0.84, sy: 0.67, spriteScale: 1.34 },
-  PERTO: { sx: 1.16, sy: 0.90, spriteScale: 1.58 },
-  AMPLA: { sx: 0.39, sy: 0.32, spriteScale: 0.94 },
+  TV: { sx: 0.84, sy: 0.67, spriteScale: 1.72 },
+  PERTO: { sx: 1.16, sy: 0.90, spriteScale: 2.02 },
+  AMPLA: { sx: 0.39, sy: 0.32, spriteScale: 1.22 },
 };
-const REPLAY_CAMERA_PRESET = { sx: 1.28, sy: 1.00, spriteScale: 1.66 };
+const REPLAY_CAMERA_PRESET = { sx: 1.28, sy: 1.00, spriteScale: 2.12 };
 
 let currentScaleX = CAMERA_PRESETS.TV.sx;
 let currentScaleY = CAMERA_PRESETS.TV.sy;
@@ -1254,9 +1254,9 @@ function drawGoalBack(
   ctx.fillRect(snap(sxStanchion - 3), snap(topGroundY - 5), 6, 4);
   ctx.fillRect(snap(sxStanchion - 3), snap(botGroundY + 1), 6, 4);
 
-  // 4. Rede traseira ultra-detalhada em malha fina (sombra + fios de náilon + losangos)
-  const hSegs = 16;
-  const zSegs = 8;
+  // 4. Rede traseira ultra-detalhada em malha fina para o gol ampliado (sombra + fios de náilon + losangos)
+  const hSegs = 20;
+  const zSegs = 10;
 
   const drawBackNetPass = (color: string, width: number, offsetX: number, offsetY: number) => {
     ctx.strokeStyle = color;
@@ -1359,9 +1359,9 @@ function drawGoalFront(
   const topBarY = snap(toScreenY(GOAL_TOP, CROSSBAR_Z));
   const botBarY = snap(toScreenY(GOAL_BOTTOM, CROSSBAR_Z));
 
-  // 1. Rede superior (teto do gol) com trama detalhada e efeito de balanço
-  const roofLines = 14;
-  ctx.lineWidth = 0.9;
+  // 1. Rede superior (teto do gol ampliado) com trama detalhada e efeito de balanço
+  const roofLines = 18;
+  ctx.lineWidth = 0.95;
   for (let i = 1; i < roofLines; i++) {
     const wy = GOAL_TOP + ((GOAL_BOTTOM - GOAL_TOP) * i) / roofLines;
     const ripple = getNetRippleOffset(engine, side, wy) * dir * 0.85;
@@ -1418,8 +1418,8 @@ function drawGoalFront(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
-  // Contorno externo escuro
-  ctx.lineWidth = 7.4;
+  // Contorno externo escuro das traves cilíndricas reforçadas
+  ctx.lineWidth = 8.4;
   ctx.strokeStyle = '#090d16';
   ctx.beginPath();
   ctx.moveTo(sxLine, topGroundY);
@@ -1429,7 +1429,7 @@ function drawGoalFront(
   ctx.stroke();
 
   // Sombra cilíndrica metálica
-  ctx.lineWidth = 5.2;
+  ctx.lineWidth = 6.0;
   ctx.strokeStyle = '#94a3b8';
   ctx.beginPath();
   ctx.moveTo(sxLine + 0.5, topGroundY);
@@ -1439,7 +1439,7 @@ function drawGoalFront(
   ctx.stroke();
 
   // Corpo branco perolado
-  ctx.lineWidth = 3.8;
+  ctx.lineWidth = 4.4;
   ctx.strokeStyle = '#e2e8f0';
   ctx.beginPath();
   ctx.moveTo(sxLine - 0.3, topGroundY);
@@ -1449,7 +1449,7 @@ function drawGoalFront(
   ctx.stroke();
 
   // Reflexo especular nítido do alumínio pintado de branco
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 1.9;
   ctx.strokeStyle = '#ffffff';
   ctx.beginPath();
   ctx.moveTo(sxLine - 1.3, topGroundY);
@@ -2084,7 +2084,7 @@ function drawSculptedHead(
   ctx.fillRect(ex1 - 0.7, cy - 1.9, 2.0, 0.65);
   ctx.fillRect(ex2 - 0.5, cy - 1.9, 2.0, 0.65);
 
-  // Olhos desenhados: pálpebra superior, esclera branca, íris colorida, pupila e ponto de luz
+  // Olhos desenhados: pálpebra superior, esclera branca, íris colorida, pupila e ponto de brilho especular
   ctx.fillStyle = '#090d16';
   ctx.fillRect(ex1 - 0.5, cy - 1.15, 1.75, 0.45);
   ctx.fillRect(ex2 - 0.4, cy - 1.15, 1.75, 0.45);
@@ -2097,6 +2097,10 @@ function drawSculptedHead(
   ctx.fillStyle = '#090d16';
   ctx.fillRect(ex1 + (dir > 0 ? 0.3 : -0.05), cy - 0.45, 0.55, 0.7);
   ctx.fillRect(ex2 + (dir > 0 ? 0.3 : -0.05), cy - 0.45, 0.55, 0.7);
+  // Reflexo branco nos olhos (olhar vivo 16-bit HD)
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(ex1 + (dir > 0 ? 0.15 : -0.15), cy - 0.65, 0.35, 0.35);
+  ctx.fillRect(ex2 + (dir > 0 ? 0.15 : -0.15), cy - 0.65, 0.35, 0.35);
 
   // Nariz esculpido com ponte luminosa e sombra suave na base
   const noseX = cx + lookOff * 0.85;
@@ -2207,7 +2211,7 @@ function drawSculptedHead(
   }
 }
 
-// Desenha perna articulada (coxa, joelho com flexão realista, meião com faixa e chuteira angulada com travas)
+// Desenha perna articulada ultra-detalhada (coxa musculosa, patela do joelho, caneleira sob o meião, esparadrapo no tornozelo e chuteira com língua, cadarço e travas)
 function drawArticulatedLeg(
   ctx: CanvasRenderingContext2D,
   hipX: number,
@@ -2222,14 +2226,14 @@ function drawArticulatedLeg(
   const dx = footX - hipX;
   const dy = footY - hipY;
   const legSpan = Math.hypot(dx, dy);
-  // Flexão natural do joelho (dobra mais à frente quando o pé sobe ou recua na passada)
+  // Flexão natural do joelho
   const flex = Math.max(0, 9.6 - legSpan) * 0.42 + Math.min(2.2, Math.abs(dx) * 0.16);
   const kneeX = hipX + dx * 0.47 + dir * (0.9 + flex);
   const kneeY = hipY + dy * 0.46 - flex * 0.25;
 
-  // Coxa arredondada com contorno e volume
+  // Coxa arredondada com contorno e volume muscular (quadríceps)
   ctx.strokeStyle = '#090d16';
-  ctx.lineWidth = 4.6;
+  ctx.lineWidth = 4.9;
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(hipX, hipY);
@@ -2237,49 +2241,77 @@ function drawArticulatedLeg(
   ctx.stroke();
 
   ctx.strokeStyle = skin;
-  ctx.lineWidth = 3.1;
+  ctx.lineWidth = 3.3;
   ctx.beginPath();
   ctx.moveTo(hipX, hipY);
   ctx.lineTo(kneeX, kneeY);
   ctx.stroke();
 
-  // Canela / Meião esportivo com dobra superior
+  // Brilho muscular no quadríceps e patela do joelho
+  ctx.strokeStyle = 'rgba(255, 250, 235, 0.28)';
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(hipX + dir * 0.4, hipY + 0.6);
+  ctx.lineTo(kneeX + dir * 0.4, kneeY - 0.4);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.beginPath();
+  ctx.arc(kneeX + dir * 0.45, kneeY, 0.9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Canela / Meião esportivo com relevo de caneleira e dobra superior
   ctx.strokeStyle = '#090d16';
-  ctx.lineWidth = 4.3;
+  ctx.lineWidth = 4.5;
   ctx.beginPath();
   ctx.moveTo(kneeX, kneeY);
   ctx.lineTo(footX, footY + 1.4);
   ctx.stroke();
 
   ctx.strokeStyle = sockColor;
-  ctx.lineWidth = 2.8;
+  ctx.lineWidth = 3.0;
   ctx.beginPath();
   ctx.moveTo(kneeX, kneeY + 0.4);
   ctx.lineTo(footX, footY + 1.4);
   ctx.stroke();
 
-  // Faixa branca no topo do meião
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(kneeX - 1.4, kneeY + 0.2, 2.8, 1.1);
+  // Volume da caneleira sob o meião (brilho frontal)
+  const midShinX = (kneeX + footX) * 0.5 + dir * 0.4;
+  const midShinY = (kneeY + footY) * 0.5 + 0.6;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.fillRect(midShinX - 0.5, midShinY - 1.1, 1.0, 2.2);
 
-  // Chuteira contornada angulada seguindo a passada/chute
+  // Faixa dupla esportiva no topo do meião
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(kneeX - 1.5, kneeY + 0.2, 3.0, 0.9);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
+  ctx.fillRect(kneeX - 1.5, kneeY + 1.1, 3.0, 0.45);
+
+  // Esparadrapo branco profissional no tornozelo (acima da chuteira)
+  ctx.fillStyle = '#f8fafc';
+  ctx.fillRect(footX - 1.35, footY - 0.2, 2.7, 1.3);
+
+  // Chuteira contornada angulada com língua, cadarço, friso e travas
   const shinAngle = Math.atan2(footY - kneeY, footX - kneeX);
   const bootTilt = Math.max(-0.42, Math.min(0.42, (shinAngle - Math.PI * 0.5) * 0.35));
   ctx.save();
   ctx.translate(footX, footY + 1.8);
   ctx.rotate(bootTilt);
-  const bootLocalX = dir >= 0 ? -1.6 : -3.6;
+  const bootLocalX = dir >= 0 ? -1.7 : -3.7;
   ctx.fillStyle = '#090d16';
-  fillCapsule(ctx, bootLocalX - 0.6, -1.0, 6.2, 3.6, 1.4);
+  fillCapsule(ctx, bootLocalX - 0.6, -1.1, 6.5, 3.8, 1.4);
   ctx.fillStyle = '#18181b';
-  fillCapsule(ctx, bootLocalX, -0.5, 5.0, 2.5, 1.1);
-  // Friso esportivo na chuteira
+  fillCapsule(ctx, bootLocalX, -0.6, 5.3, 2.7, 1.1);
+  // Língua e cadarço branco da chuteira
+  ctx.fillStyle = '#f1f5f9';
+  ctx.fillRect(bootLocalX + (dir >= 0 ? 2.1 : 1.5), -1.0, 1.4, 0.7);
+  // Friso lateral aerodinâmico na chuteira
   ctx.fillStyle = bootAccent;
-  ctx.fillRect(bootLocalX + (dir >= 0 ? 1.6 : 0.8), 0.0, 2.2, 0.9);
-  // Travas brancas/prateadas na sola
+  ctx.fillRect(bootLocalX + (dir >= 0 ? 1.5 : 0.8), 0.0, 2.5, 0.95);
+  // 3 travas metálicas na sola
   ctx.fillStyle = '#e2e8f0';
-  ctx.fillRect(bootLocalX + 0.6, 1.8, 1.0, 0.8);
-  ctx.fillRect(bootLocalX + 3.0, 1.8, 1.0, 0.8);
+  ctx.fillRect(bootLocalX + 0.5, 1.85, 0.95, 0.85);
+  ctx.fillRect(bootLocalX + 2.1, 1.85, 0.85, 0.85);
+  ctx.fillRect(bootLocalX + 3.5, 1.85, 0.95, 0.85);
   ctx.restore();
 }
 
@@ -2976,9 +3008,9 @@ function drawFieldPlayer(
       hdY = elY - 1.2;
     }
 
-    // Manga arredondada
+    // Manga arredondada com punho na cor secundária e braçadeira de capitão no camisa 10!
     ctx.strokeStyle = '#090d16';
-    ctx.lineWidth = 4.6;
+    ctx.lineWidth = 4.8;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(shX, shY);
@@ -2986,26 +3018,45 @@ function drawFieldPlayer(
     ctx.stroke();
 
     ctx.strokeStyle = sleeveColor;
-    ctx.lineWidth = 3.1;
+    ctx.lineWidth = 3.3;
     ctx.beginPath();
     ctx.moveTo(shX, shY);
     ctx.lineTo(elX, elY);
     ctx.stroke();
 
-    // Antebraço de pele
+    // Punho da manga + Braçadeira de Capitão dourada no camisa 10 (braço esquerdo)
+    const cuffX = shX + (elX - shX) * 0.82;
+    const cuffY = shY + (elY - shY) * 0.82;
+    ctx.fillStyle = kit.secondary;
+    ctx.fillRect(cuffX - 1.1, cuffY - 0.6, 2.2, 1.1);
+    if (p.number === 10 && side === -1) {
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(shX + (elX - shX) * 0.45 - 1.3, shY + (elY - shY) * 0.45 - 0.7, 2.6, 1.3);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(shX + (elX - shX) * 0.45 - 1.1, shY + (elY - shY) * 0.45 - 0.2, 2.2, 0.35);
+    }
+
+    // Antebraço de pele com definição muscular e munhequeira esportiva branca
     ctx.strokeStyle = '#090d16';
-    ctx.lineWidth = 3.6;
+    ctx.lineWidth = 3.7;
     ctx.beginPath();
     ctx.moveTo(elX, elY);
     ctx.lineTo(hdX, hdY);
     ctx.stroke();
 
     ctx.strokeStyle = p.skin;
-    ctx.lineWidth = 2.3;
+    ctx.lineWidth = 2.4;
     ctx.beginPath();
     ctx.moveTo(elX, elY);
     ctx.lineTo(hdX, hdY);
     ctx.stroke();
+
+    if (p.role !== 'GK' && (p.number === 10 || p.number === 9 || p.number === 7 || p.number === 11)) {
+      const wristX = elX + (hdX - elX) * 0.78;
+      const wristY = elY + (hdY - elY) * 0.78;
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(wristX - 0.9, wristY - 0.6, 1.8, 1.1);
+    }
 
     // Mão ou Luva profissional acolchoada do goleiro
     if (p.role === 'GK') {
@@ -3023,7 +3074,7 @@ function drawFieldPlayer(
     } else {
       ctx.fillStyle = p.skin;
       ctx.beginPath();
-      ctx.arc(hdX, hdY, 1.25, 0, Math.PI * 2);
+      ctx.arc(hdX, hdY, 1.35, 0, Math.PI * 2);
       ctx.fill();
     }
   };
@@ -3035,41 +3086,60 @@ function drawFieldPlayer(
   // Braço oposto à direção fica levemente atrás do tronco
   drawArm(dir > 0 ? -1 : 1, dir > 0 ? leftUp : rightUp, dir > 0 ? pump : -pump);
 
-  // --- TRONCO ATLÉTICO / CAMISA COM PADRÃO DO CLUBE, GOLA V E NÚMERO ---
+  // --- TRONCO ATLÉTICO / CAMISA COM PADRÃO DO CLUBE, GOLA V, DOBRAS DE TECIDO E NÚMERO ---
   ctx.fillStyle = '#090d16';
-  fillCapsule(ctx, torsoX - 7.2, torsoY - 0.8, 14.4, 13.8, 3.6);
+  fillCapsule(ctx, torsoX - 7.4, torsoY - 0.9, 14.8, 14.2, 3.7);
 
   ctx.save();
   ctx.beginPath();
-  ctx.roundRect(torsoX - 6.2, torsoY, 12.4, 12.2, 2.8);
+  ctx.roundRect(torsoX - 6.4, torsoY, 12.8, 12.5, 2.9);
   ctx.clip();
-  drawPatternedShirt(ctx, torsoX - 6.2, torsoY, 12.4, 12.2, kit, p.role === 'GK');
+  drawPatternedShirt(ctx, torsoX - 6.4, torsoY, 12.8, 12.5, kit, p.role === 'GK');
+  // Dobras sutis de tecido e definição peitoral/dorsal
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.16)';
+  ctx.fillRect(torsoX - 5.2, torsoY + 1.2, 1.4, 9.5);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.fillRect(torsoX + 3.8, torsoY + 1.5, 1.5, 9.5);
+  ctx.fillRect(torsoX - 3.2, torsoY + 10.6, 6.4, 0.9);
   ctx.restore();
 
-  // Gola esportiva em V + escudo miniatura no peito
-  ctx.fillStyle = kit.secondary;
+  // Gola esportiva em V com borda + escudo detalhado no peito
+  ctx.fillStyle = '#090d16';
   ctx.beginPath();
-  ctx.moveTo(torsoX - 2.6, torsoY);
-  ctx.lineTo(torsoX + 2.6, torsoY);
-  ctx.lineTo(torsoX, torsoY + 2.6);
+  ctx.moveTo(torsoX - 3.1, torsoY - 0.2);
+  ctx.lineTo(torsoX + 3.1, torsoY - 0.2);
+  ctx.lineTo(torsoX, torsoY + 3.1);
   ctx.closePath();
   ctx.fill();
 
-  // Escudo discreto no peito esquerdo
+  ctx.fillStyle = kit.secondary;
+  ctx.beginPath();
+  ctx.moveTo(torsoX - 2.5, torsoY);
+  ctx.lineTo(torsoX + 2.5, torsoY);
+  ctx.lineTo(torsoX, torsoY + 2.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Escudo bordado no peito esquerdo com contorno dourado
+  ctx.fillStyle = '#090d16';
+  ctx.fillRect(torsoX + 1.9, torsoY + 2.1, 2.4, 2.6);
   ctx.fillStyle = kit.tertiary ?? '#facc15';
   ctx.fillRect(torsoX + 2.2, torsoY + 2.4, 1.8, 2.0);
 
-  // Número discreto na camisa
-  ctx.font = 'bold 5.5px monospace';
+  // Número nítido com contorno de alto contraste na camisa
+  ctx.font = 'bold 6px monospace';
   ctx.textAlign = 'center';
-  const numColor =
-    kit.primary.toLowerCase() === '#ffffff' || kit.primary.toLowerCase() === '#f8fafc' || kit.primary.toLowerCase() === '#facc15'
-      ? '#0f172a'
-      : '#ffffff';
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillText(String(p.number), torsoX - 0.2, torsoY + 9.8);
+  const isLightShirt =
+    kit.primary.toLowerCase() === '#ffffff' ||
+    kit.primary.toLowerCase() === '#f8fafc' ||
+    kit.primary.toLowerCase() === '#facc15';
+  const numColor = isLightShirt ? '#0f172a' : '#ffffff';
+  const numOutline = isLightShirt ? 'rgba(255,255,255,0.85)' : 'rgba(9,13,22,0.88)';
+  ctx.fillStyle = numOutline;
+  ctx.fillText(String(p.number), torsoX - 0.1, torsoY + 10.1);
+  ctx.fillText(String(p.number), torsoX - 0.9, torsoY + 9.3);
   ctx.fillStyle = numColor;
-  ctx.fillText(String(p.number), torsoX - 0.5, torsoY + 9.5);
+  ctx.fillText(String(p.number), torsoX - 0.5, torsoY + 9.7);
   ctx.textAlign = 'left';
 
   // Braço frontal sobre o lado do tronco

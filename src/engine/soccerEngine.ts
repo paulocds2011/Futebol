@@ -38,15 +38,15 @@ export const FIELD_TOP = 200;
 export const FIELD_BOTTOM = 1920;
 export const FIELD_CENTER_X = (FIELD_LEFT + FIELD_RIGHT) / 2; // 1800
 export const FIELD_CENTER_Y = (FIELD_TOP + FIELD_BOTTOM) / 2; // 1060
-export const GOAL_HALF_H = 122;
+export const GOAL_HALF_H = 160;
 export const GOAL_TOP = FIELD_CENTER_Y - GOAL_HALF_H;
 export const GOAL_BOTTOM = FIELD_CENTER_Y + GOAL_HALF_H;
-export const GOAL_DEPTH = 74;
-export const CROSSBAR_Z = 80;
-export const PENALTY_W = 390;
-export const PENALTY_HALF_H = 360;
-export const GOALBOX_W = 148;
-export const GOALBOX_HALF_H = 192;
+export const GOAL_DEPTH = 90;
+export const CROSSBAR_Z = 98;
+export const PENALTY_W = 415;
+export const PENALTY_HALF_H = 415;
+export const GOALBOX_W = 166;
+export const GOALBOX_HALF_H = 236;
 
 const CLUB_CHANTS: Record<string, [string, string]> = {
   fla: ['MENGÔÔÔ! MENGÔÔÔ!', 'VAI FLAMENGO!'],
@@ -2632,6 +2632,17 @@ export class SoccerEngine {
     p.vx = p.facingX * 265;
     p.vy = p.facingY * 265;
 
+    // Se o marcador dá bote por trás no corpo do adversário sem alcançar a bola primeiro, marca falta simples!
+    if (currentOwner && currentOwner.team !== p.team && currentOwner.role !== 'GK') {
+      const distVictim = Math.hypot(p.x - currentOwner.x, p.y - currentOwner.y);
+      const approachDot = p.facingX * currentOwner.facingX + p.facingY * currentOwner.facingY;
+      if (distVictim < 30 && dist > distVictim + 3 && approachDot > 0.32) {
+        currentOwner.stunTimer = 0.55;
+        this.triggerFoul(p.team, currentOwner.team, currentOwner.x, currentOwner.y, p.name, currentOwner.name, false);
+        return;
+      }
+    }
+
     if (dist < 46 && this.ball.z < 26) {
       if (!currentOwner || currentOwner.team !== p.team) {
         if (currentOwner && currentOwner.role !== 'GK') {
@@ -2709,11 +2720,59 @@ export class SoccerEngine {
     p.vy *= Math.pow(0.28, dt);
     this.integratePlayerPosition(p, dt);
 
-    // Checa contato com a bola (desarme limpo! Nunca atinge goleiro com a bola nas mãos!)
     const distBall = Math.hypot(p.x - this.ball.x, p.y - this.ball.y);
-    if (distBall < 24 && this.ball.z < 20) {
-      const prevOwner = this.players.find((pl) => pl.id === this.ball.ownerId);
-      if (prevOwner && prevOwner.role === 'GK') return;
+    const prevOwner = this.ball.ownerId
+      ? this.players.find((pl) => pl.id === this.ball.ownerId)
+      : null;
+
+    if (prevOwner && prevOwner.role === 'GK') return;
+
+    // 1. Checa primeiro se o carrinho atingiu o corpo do portador da bola (por trás ou pelo lado antes de chegar na bola)
+    if (prevOwner && prevOwner.team !== p.team) {
+      const distVictim = Math.hypot(p.x - prevOwner.x, p.y - prevOwner.y);
+      const dot = p.facingX * prevOwner.facingX + p.facingY * prevOwner.facingY;
+      // Entrada por trás (dot > 0.12) ou acertou as pernas do jogador antes da bola (distVictim <= distBall + 5)
+      if (distVictim < 30 && (dot > 0.12 || distVictim <= distBall + 5)) {
+        prevOwner.stunTimer = 0.72;
+        p.tackleTimer = 0;
+        const isHardYellow = dot > 0.18 || distBall > 28;
+        this.triggerFoul(
+          p.team,
+          prevOwner.team,
+          prevOwner.x,
+          prevOwner.y,
+          p.name,
+          prevOwner.name,
+          isHardYellow
+        );
+        return;
+      }
+    }
+
+    // 2. Checa também carrinho atrasado em adversário que acabou de tocar/chutar a bola!
+    if (!prevOwner && this.ball.lastTouchTeam && this.ball.lastTouchTeam !== p.team) {
+      const lastToucher = this.players.find((pl) => pl.id === this.ball.lastTouchPlayerId);
+      if (lastToucher && lastToucher.role !== 'GK' && (lastToucher.passAnimTimer > 0.04 || lastToucher.kickAnimTimer > 0.04)) {
+        const distLateVictim = Math.hypot(p.x - lastToucher.x, p.y - lastToucher.y);
+        if (distLateVictim < 27 && distBall > 24) {
+          lastToucher.stunTimer = 0.72;
+          p.tackleTimer = 0;
+          this.triggerFoul(
+            p.team,
+            lastToucher.team,
+            lastToucher.x,
+            lastToucher.y,
+            p.name,
+            lastToucher.name,
+            true
+          );
+          return;
+        }
+      }
+    }
+
+    // 3. Contato limpo pela frente ou lateral na bola!
+    if (distBall < 27 && this.ball.z < 22) {
       if (!prevOwner || prevOwner.team !== p.team) {
         if (prevOwner) {
           prevOwner.stunTimer = 0.45;
@@ -2734,8 +2793,8 @@ export class SoccerEngine {
           this.playByPlayCooldown = 2.0;
           this.broadcast(
             pick([
-              `Carrinho preciso de ${p.name} em ${prevOwner.name}!`,
-              `Chegou na bola ${p.name}, desarmando ${prevOwner.name}!`,
+              `Carrinho preciso de ${p.name} na bola, desarmando ${prevOwner.name}!`,
+              `Chegou limpo na bola ${p.name}, tirando de ${prevOwner.name}!`,
             ]),
             'normal',
             'excited',
@@ -2743,21 +2802,6 @@ export class SoccerEngine {
           );
         }
         return;
-      }
-    }
-
-    // Checa falta simples (atingiu portador da bola por trás sem tocar na bola)
-    if (this.ball.ownerId) {
-      const victim = this.players.find((pl) => pl.id === this.ball.ownerId);
-      if (victim && victim.team !== p.team) {
-        const distVictim = Math.hypot(p.x - victim.x, p.y - victim.y);
-        if (distVictim < 21 && distBall > 22) {
-          // Produto escalar positivo => entrada por trás
-          const dot = p.facingX * victim.facingX + p.facingY * victim.facingY;
-          if (dot > 0.25) {
-            this.triggerFoul(p.team, victim.team, victim.x, victim.y, p.name, victim.name);
-          }
-        }
       }
     }
   }
@@ -2768,10 +2812,18 @@ export class SoccerEngine {
     spotX: number,
     spotY: number,
     foulerName?: string,
-    victimPlayerName?: string
+    victimPlayerName?: string,
+    isYellowCard = true
   ): void {
     if (foulingTeam === 'home') this.stats.homeFouls++;
     else this.stats.awayFouls++;
+
+    // Limpa qualquer carregamento de barra ou bicicleta armada
+    for (const pl of this.players) {
+      pl.isCharging = false;
+      pl.chargePower = 0;
+      pl.queuedBicycle = false;
+    }
 
     this.phase = 'FREE_KICK';
     this.setPieceTeam = victimTeam;
@@ -2779,6 +2831,9 @@ export class SoccerEngine {
     this.setPieceSpotY = Math.max(FIELD_TOP + 35, Math.min(FIELD_BOTTOM - 35, spotY));
     this.setPieceWaitTimer = 0.9;
     this.ball.ownerId = null;
+    this.ball.passTargetId = null;
+    this.ball.isCrossBall = false;
+    this.ball.shotInFlight = false;
     this.ball.x = this.setPieceSpotX;
     this.ball.y = this.setPieceSpotY;
     this.ball.z = 0;
@@ -2788,30 +2843,50 @@ export class SoccerEngine {
 
     this.positionForSetPiece();
     this.referee.whistleTimer = 1.1;
-    this.referee.cardTimer = 2.0; // Juiz mostra cartão amarelo!
-    this.referee.signalTimer = 1.6;
+    this.referee.cardTimer = isYellowCard ? 2.1 : 0; // Só levanta cartão amarelo nas faltas duras/carrinhos por trás!
+    this.referee.signalTimer = 1.7;
     this.referee.signalDirX = this.getAttackDir(victimTeam);
     this.raiseNearestLinesmanFlag(this.setPieceSpotX, this.setPieceSpotY, this.getAttackDir(victimTeam), 1.8);
-    this.showCallout(
-      'FALTA!',
-      foulerName
-        ? `Amarelo p/ ${foulerName} · ${victimTeam === 'home' ? this.homeClub.shortName : this.awayClub.shortName}`
-        : `Cartão Amarelo · ${victimTeam === 'home' ? this.homeClub.shortName : this.awayClub.shortName}`,
-      'foul',
-      1.9
-    );
+
+    const victimClubShort = victimTeam === 'home' ? this.homeClub.shortName : this.awayClub.shortName;
+    if (isYellowCard) {
+      this.showCallout(
+        'FALTA + AMARELO!',
+        foulerName
+          ? `Cartão Amarelo p/ ${foulerName} · Bola do ${victimClubShort}`
+          : `Cartão Amarelo · Bola do ${victimClubShort}`,
+        'foul',
+        2.0
+      );
+    } else {
+      this.showCallout(
+        'FALTA MARCADA!',
+        foulerName && victimPlayerName
+          ? `${foulerName} em ${victimPlayerName} · Bola do ${victimClubShort}`
+          : `Bola parada p/ ${victimClubShort}`,
+        'foul',
+        1.8
+      );
+    }
+
     retroAudio.playWhistle('double');
     const victimClubName = victimTeam === 'home' ? this.homeClub.name : this.awayClub.name;
-    const foulLine =
-      foulerName && victimPlayerName
-        ? `Pode isso, Arnaldo?! Falta dura de ${foulerName} em cima de ${victimPlayerName}! Cartão amarelo e bola parada para o ${victimClubName}!`
-        : `Pode isso, Arnaldo?! Falta dura marcada! Cartão amarelo e bola parada para o ${victimClubName}!`;
-    const foulAnalyst = Math.random() < 0.68 ? 'neto' : 'casagrande';
-    const foulReply =
-      foulAnalyst === 'neto'
-        ? `Ô Galvão, falta perigosíssima! Na minha época de camisa dez, daí eu guardava direto na gaveta!`
-        : `Falta claríssima, Galvão! Chegou atrasado e mereceu o cartão amarelo!`;
-    this.broadcastDialogue(foulLine, foulReply, foulAnalyst, 'high', 'excited', 5.0);
+    const foulLine = isYellowCard
+      ? foulerName && victimPlayerName
+        ? `Pode isso, Arnaldo?! Falta dura de ${foulerName} por trás em ${victimPlayerName}! O juiz puxa o cartão amarelo e marca falta para o ${victimClubName}!`
+        : `Pode isso, Arnaldo?! Falta dura marcada! Cartão amarelo e bola parada para o ${victimClubName}!`
+      : foulerName && victimPlayerName
+        ? `Apita o árbitro! Falta de ${foulerName} na disputa com ${victimPlayerName}! Bola parada para o ${victimClubName}!`
+        : `Apita o árbitro! Falta marcada para o ${victimClubName} cobrar!`;
+    const foulAnalyst = Math.random() < 0.65 ? 'neto' : 'casagrande';
+    const foulReply = isYellowCard
+      ? foulAnalyst === 'neto'
+        ? `Ô Galvão, chegou rasgando por trás! Cartão amarelo ficou até barato, e daí dá pra guardar na gaveta!`
+        : `Falta claríssima, Galvão! Chegou atrasado no carrinho e mereceu o cartão amarelo!`
+      : foulAnalyst === 'neto'
+        ? `Falta bem marcada pelo juizão, Galvão! Tocou na perna de apoio, tem que apitar mesmo!`
+        : `Bem marcada a falta, Galvão! Desequilibrou o jogador no bote e parou a jogada!`;
+    this.broadcastDialogue(foulLine, foulReply, foulAnalyst, 'high', 'excited', 4.8);
   }
 
   private performPass(
@@ -4293,7 +4368,7 @@ export class SoccerEngine {
   }
 
   private resolvePlayerSeparation(): void {
-    const minDist = 20;
+    const minDist = 25;
     for (let i = 0; i < this.players.length; i++) {
       for (let j = i + 1; j < this.players.length; j++) {
         const a = this.players[i];
